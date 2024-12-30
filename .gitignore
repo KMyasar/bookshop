@@ -1,0 +1,11 @@
+*.sql
+# macOS specific
+.DS_Store
+# IDE/Editor-specific
+.vscode/
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
