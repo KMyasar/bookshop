@@ -2,8 +2,8 @@
 
 $login = false;
 if (isset($_POST['idemail']) and isset($_POST['idpass'])) {
-    $email = $_POST['idemail'];
-    $pass = $_POST['idpass'];
+    $email = htmlentities($_POST['idemail']);
+    $pass = htmlentities($_POST['idpass']);
     $token = usersession::authenticate($email, $pass);
     $login = true;
 }
