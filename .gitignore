@@ -9,3 +9,10 @@
 *.bak
 *.swp
 *.swo
+# Php files
+upload.php
+upload_head.php
+test.php
+test2.php
+#html files
+test.html

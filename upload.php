@@ -1,9 +1,9 @@
 <?php
 // Connection parameters
-$host = "localhost";
-$user = "root";
+$host = "";
+$user = "";
 $password = "";
-$database = "readandcatch";
+$database = "";
 
 // Create connection
 $conn = new mysqli($host, $user, $password, $database);
