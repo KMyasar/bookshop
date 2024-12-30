@@ -5,10 +5,10 @@ class database
     public static $conn = null;
     public static function connection()
     {
-        $Server_name = "localhost";
-        $user = "root";
-        $password = "";
-        $db_name = "readandcatch";
+        $Server_name = get_config("server_name");
+        $user = get_config("user");
+        $password = get_config("password");
+        $db_name = get_config("db_name");
         try {
             if (database::$conn != null) {
                 return database::$conn;

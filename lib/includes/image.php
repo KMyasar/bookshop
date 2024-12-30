@@ -2,10 +2,10 @@
 // Connection parameters
 function get_image($pid)
 {
-    $host = "localhost";
-    $user = "root";
-    $password = "";
-    $database = "readandcatch";
+        $host = get_config("server_name");
+        $user = get_config("user");
+        $password = get_config("password");
+        $database = get_config("db_name");
 
     // Create connection
     $conn = new mysqli($host, $user, $password, $database);
