@@ -2,7 +2,7 @@
 
 class user
 {
-    Use SQLGetterSetter;
+    use SQLGetterSetter;
     public $id;
     public $username;
     public $conn;
@@ -11,45 +11,37 @@ class user
     public $sid;
     public static function signup($first, $last, $email, $password)
     {
-        $valid = false;
-        //getting database connection
         $conn = database::connection();
         $username = $first . $last;
-        //Using the BCRYPT hashing with time cost
-        $password = password_hash($password, PASSWORD_BCRYPT, ['cost' => 9]);
-        //Generate the username with first and last name of user and number
-        $sql = "INSERT INTO `auth` (`username`, `firstname`, `lastname`,`email`,`password`) 
-            SELECT CONCAT('$username', COUNT(`id`)), '$first', '$last','$email','$password'
-            FROM `auth` WHERE `username` LIKE '$username%';";
+        $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 9]);
+
         try {
-            $conn->query($sql);
-            $sql1 = "SELECT `id` FROM `auth` WHERE `email` = '$email';";
-            try {
-                //If User credentials has succeed Gets the user's id to create relational table
-                $result = $conn->query($sql1);
-                if ($result->num_rows == 1) {
-                    $row = $result->fetch_assoc();
-                    $id_auth = $row['id'];
-                    $sql2 = "INSERT INTO `user`(`uid`,`email`,`firstname`,`lastname`) VALUES ('$id_auth','$email','$first','$last');";
-                    $sql2 .="INSERT INTO `sessions`(`sid`) VALUES ('$id_auth');";
-                    try {
-                        $conn->multi_query($sql2);
-                        $valid = true;
-                    } catch (Exception $e) {
-                        echo $e->getMessage()."catch from last";
-                        return $valid;
-                    }
-                }
-            } catch (Exception $e) {
-                echo $e->getMessage(). "catch from second";
-                return $valid;
-            }
+            // Generate unique username by appending a random number
+            $stmt = $conn->prepare("INSERT INTO `auth` (`username`, `firstname`, `lastname`, `email`, `password`) 
+                                VALUES (?, ?, ?, ?, ?)");
+            $stmt->bind_param("sssss", $username, $first, $last, $email, $hashedPassword);
+            $stmt->execute();
+
+            // Fetch the user's ID
+            $userId = $conn->insert_id;
+
+            // Insert into related tables
+            $stmt = $conn->prepare("INSERT INTO `user`(`uid`, `email`, `firstname`, `lastname`) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("isss", $userId, $email, $first, $last);
+            $stmt->execute();
+
+            $stmt = $conn->prepare("INSERT INTO `sessions`(`sid`) VALUES (?)");
+            $stmt->bind_param("i", $userId);
+            $stmt->execute();
+
             return true;
         } catch (Exception $e) {
-            echo $e->getMessage()." catch from first query";
-            return $valid;
+            // Log the error and handle appropriately
+            error_log("Signup error: " . $e->getMessage());
+            return false;
         }
     }
+
     /**
      * login authentication
      *
@@ -59,24 +51,36 @@ class user
      */
     public static function login($input1, $password)
     {
-        //Getting the database connection
+        // Getting the database connection
         $conn = database::connection();
-        $sql = "SELECT * FROM `auth` WHERE `email` = '$input1' OR `username` = '$input1';";
+        $sql = "SELECT * FROM `auth` WHERE `email` = ? OR `username` = ?";
+
         try {
-            $result = $conn->query($sql);
+            // Using prepared statements to prevent SQL Injection
+            $stmt = $conn->prepare($sql);
+            $stmt->bind_param("ss", $input1, $input1); // Binding parameters (s = string)
+            $stmt->execute();
+            $result = $stmt->get_result();
+
             if ($result->num_rows != 0) {
                 $row = $result->fetch_assoc();
-                //PHP password verify
+
+                // Verifying the password
                 if (password_verify($password, $row['password'])) {
                     return $row['username'];
                 } else {
-                    return false;
+                    return false; // Invalid password
                 }
+            } else {
+                return false; // User not found
             }
         } catch (Exception $e) {
+            // Log the error for debugging (optional)
+            error_log("Login error: " . $e->getMessage());
             return false;
         }
     }
+
     /**
      * Construct Username and id with either email or username  
      *
@@ -86,17 +90,19 @@ class user
     {
         $this->table = 'user';
         $this->conn = database::connection();
-        $sql = "SELECT * FROM `auth` WHERE `email` = '$enter' OR `username` = '$enter' or `id` = '$enter';";
-        try {
-            $result = $this->conn->query($sql);
-            if ($result->num_rows==1) {
-                $row = $result->fetch_assoc();
-                $this->id = $row['id'];
-                $this->username = $row['username'];
-            }
 
-        } catch (Exception $e) {
-            echo "query error happen";
+        $sql = "SELECT * FROM `auth` WHERE `email` = ? OR `username` = ? OR `id` = ?";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("sss", $enter, $enter, $enter);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows == 1) {
+            $row = $result->fetch_assoc();
+            $this->id = $row['id'];
+            $this->username = $row['username'];
+        } else {
+            throw new Exception("User not found");
         }
     }
 }

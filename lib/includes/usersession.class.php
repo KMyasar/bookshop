@@ -8,6 +8,13 @@ class usersession
     public $sid;
     public $table;
 
+    /**
+     * Authenticate the user using email and password.
+     *
+     * @param string $email
+     * @param string $password
+     * @return bool
+     */
     public static function authenticate($email, $password)
     {
         $valid = false;
@@ -15,68 +22,81 @@ class usersession
         if ($username) {
             $user = new user($username);
             [$ip, $agent, $time, $token] = sessions::Token();
-            $sql = "UPDATE `sessions` SET `token` = '$token',`ip` = '$ip',`time`='$time',
-            `user_agent`='$agent',`active`=1 WHERE `sid`='$user->id';";
+
+            $sql = "UPDATE `sessions` SET `token` = ?, `ip` = ?, `time` = ?, `user_agent` = ?, `active` = 1 WHERE `sid` = ?";
             try {
-                $user->conn->query($sql);
+                $stmt = $user->conn->prepare($sql);
+                $stmt->bind_param("ssssi", $token, $ip, $time, $agent, $user->id);
+                $stmt->execute();
                 sessions::set("session_token", $token);
                 $valid = true;
-                return $valid;
             } catch (Exception $e) {
-                echo $e->getMessage();
-                return $valid;
+                error_log($e->getMessage());
             }
         }
+        return $valid;
     }
+
+    /**
+     * Authorize the session token.
+     *
+     * @param string $token
+     * @return bool
+     */
     public static function authorize($token)
     {
         $session = new usersession($token);
-        if (isset($_SERVER['REMOTE_ADDR']) and isset($_SERVER["HTTP_USER_AGENT"])) {
-            if ($session->isValid() and $session->isActive()) {
-                if ($_SERVER['REMOTE_ADDR'] == $session->getIP()) {
-                    if ($_SERVER['HTTP_USER_AGENT'] == $session->getUserAgent()) {
-                        // temp. diable
-                        // if ($session->getFingerprint() == $_SESSION['fingerprint']) {
-                        //     return true;
-                        // } else {
-                        //     throw new Exception("FingerPrint doesn't match");
-                        // }
-                        return true;
-                    } else {
-                        // echo "User agent does't match";
-                        return false;
-                    }
+        if (isset($_SERVER['REMOTE_ADDR']) && isset($_SERVER['HTTP_USER_AGENT'])) {
+            if ($session->isValid() && $session->isActive()) {
+                if ($_SERVER['REMOTE_ADDR'] === $session->getIP() &&
+                    $_SERVER['HTTP_USER_AGENT'] === $session->getUserAgent()) {
+                    // Enable fingerprint validation if required
+                    // if ($session->getFingerprint() === $_SESSION['fingerprint']) {
+                    return true;
                 } else {
-                    // echo "IP doesn't match";
                     return false;
                 }
             } else {
                 $session->removeSession();
-                sessions::destory();
-                // echo "Invalid session";
+                // sessions::destroy();
+                session_destroy();
                 return false;
             }
-        } else {
-            // echo "Ip and browser is null";
-            return false;
         }
+        return false;
     }
+
+    /**
+     * Constructor to initialize the session object.
+     *
+     * @param string $session_token
+     */
     public function __construct($session_token)
     {
         $this->conn = database::connection();
         $this->token = $session_token;
         $this->table = 'sessions';
-        $sql = "SELECT * FROM `sessions` WHERE `token` = '$this->token';";
+
+        $sql = "SELECT * FROM `sessions` WHERE `token` = ?";
         try {
-            $result = $this->conn->query($sql);
-            if ($result->num_rows == 1) {
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("s", $this->token);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($result->num_rows === 1) {
                 $this->data = $result->fetch_assoc();
                 $this->sid = $this->data['sid'];
             }
         } catch (Exception $e) {
-            echo $e->getMessage()." happened in usersession";
+            error_log($e->getMessage() . " happened in usersession constructor");
         }
     }
+
+    /**
+     * Get the username of the current session.
+     *
+     * @return string
+     */
     public function getUser()
     {
         $obj = new user($this->sid);
@@ -84,72 +104,89 @@ class usersession
     }
 
     /**
-     * Check if the validity of the session is within one hour, else it inactive.
+     * Check if the session is valid within a one-hour window.
      *
-     * @return boolean
+     * @return bool
      */
     public function isValid()
     {
         if (isset($this->data['time'])) {
             $login_time = DateTime::createFromFormat('Y-m-d H:i:s', $this->data['time']);
-            if (3600 > time() - $login_time->getTimestamp()) {
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            // echo "Login time has expired";
-           return false;
+            return (3600 > time() - $login_time->getTimestamp());
         }
+        return false;
     }
 
+    /**
+     * Get the IP address of the session.
+     *
+     * @return string|false
+     */
     public function getIP()
     {
-        return isset($this->data["ip"]) ? $this->data["ip"] : false;
+        return $this->data['ip'] ?? false;
     }
 
+    /**
+     * Get the user agent of the session.
+     *
+     * @return string|false
+     */
     public function getUserAgent()
     {
-        return isset($this->data["user_agent"]) ? $this->data["user_agent"] : false;
+        return $this->data['user_agent'] ?? false;
     }
 
+    /**
+     * Deactivate the current session.
+     *
+     * @return bool
+     */
     public function deactivate()
     {
         if (!$this->conn) {
             $this->conn = database::connection();
         }
-        $sql = "UPDATE `$this->table` SET `active` = '0' WHERE `sid`='$this->sid';";
+        $sql = "UPDATE `$this->table` SET `active` = 0 WHERE `sid` = ?";
         try {
-            $this->conn->query($sql);
-            return false;
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("i", $this->sid);
+            $stmt->execute();
+            return true;
         } catch (Exception $e) {
-            echo $e->getMessage()."at deactivate session";
+            error_log($e->getMessage() . " at deactivate session");
             return false;
         }
     }
 
+    /**
+     * Check if the session is active.
+     *
+     * @return bool
+     */
     public function isActive()
     {
-        if (isset($this->data['active'])) {
-            return $this->data['active'] ? true : false;
-        }
+        return isset($this->data['active']) && $this->data['active'];
     }
 
+    /**
+     * Get the fingerprint of the session.
+     *
+     * @return string|false
+     */
     public function getFingerprint()
     {
-        if (isset($this->data['fingerprint'])) {
-            return $this->data['fingerprint'] ? true : false;
-        }
+        return $this->data['fingerprint'] ?? false;
     }
 
-    //This function remove current session
+    /**
+     * Remove the current session.
+     */
     public function removeSession()
     {
-        if (isset($this->data['sid'])) {
-            $session = new usersession('session_token');
-            if ($session->deactivate()) {
-                sessions::set('is_logged', false);
-            }
+        if (isset($this->sid)) {
+            $this->deactivate();
+            sessions::set('is_logged', false);
         }
     }
 }
